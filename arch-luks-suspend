@@ -1,0 +1,62 @@
+#!/bin/sh
+
+set -e -u
+trap 'echo "Press ENTER to continue."; read dummy' ERR
+
+################################################################################
+## Parameters and helper functions
+
+INITRAMFS_DIR=/run/initramfs
+SYSTEM_SLEEP_PATH=/usr/lib/systemd/system-sleep
+BIND_PATHS="/sys /proc /dev /run"
+
+# run_dir DIR ARGS...
+# Run all executable scripts in directory DIR with arguments ARGS
+run_dir() {
+    dir=$1
+    shift
+    find "${dir}" -type f -executable -exec "{}" "$@" ";"
+}
+
+# Restore chroot
+umount_initramfs() {
+    for p in ${BIND_PATHS}; do
+        ! mountpoint -q "${INITRAMFS_DIR}${p}" || umount "${INITRAMFS_DIR}${p}"
+    done
+}
+
+################################################################################
+## Main script
+
+[ -e "${INITRAMFS_DIR}/suspend" ] || exec /usr/lib/systemd/systemd-suspend suspend
+
+# Prepare chroot
+trap umount_initramfs EXIT
+for p in ${BIND_PATHS}; do
+    mount -o bind ${p} "${INITRAMFS_DIR}${p}"
+done
+
+# Run pre-suspend scripts
+run_dir "${SYSTEM_SLEEP_PATH}" pre suspend
+
+# Stop udev service and prevent it to be autostarted.
+# Otherwise, luksResume will hang waiting for udev, which is itself waiting
+# for I/O on the root device.
+systemctl stop systemd-udevd-control.socket
+systemctl stop systemd-udevd-kernel.socket
+systemctl stop systemd-udevd.service
+
+# Synchronize filesystems before luksSuspend
+sync
+
+# Hand over execution to script inside initramfs
+cd "${INITRAMFS_DIR}"
+chroot . /suspend
+
+# Restart udev
+systemctl start systemd-udevd-control.socket
+systemctl start systemd-udevd-kernel.socket
+systemctl start systemd-udevd.service
+
+# Run post-suspend scripts
+run_dir "${SYSTEM_SLEEP_PATH}" post suspend

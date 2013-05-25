@@ -1,0 +1,16 @@
+#!/bin/bash
+
+build() {
+    add_file "/usr/lib/arch-luks-suspend/initramfs-suspend" "/suspend" 755
+}
+
+help() {
+    cat <<HELPEOF
+This hook installs a /run/initramfs/suspend script that suspends the encrypted
+root device before suspending the system.
+
+You will need the encrypt and shutdown hooks too.
+HELPEOF
+}
+
+# vim: set ft=sh ts=4 sw=4 et:
