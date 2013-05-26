@@ -1,11 +1,5 @@
 #!/usr/bin/ash
 
-emergency_console() {
-    echo "WARNING: an error has occured, launching an emergency console."
-    export PS1='[rootfs \W]\$ '
-    exec sh -i
-}
-
 # Retrieve cryptdevice name from boot cmdline
 cryptname=$(sed -n 's/.*cryptdevice=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)
 
@@ -16,4 +10,5 @@ cryptname=$(sed -n 's/.*cryptdevice=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)
 echo mem > /sys/power/state
 
 # Resume root device
-[ -z "${cryptname}" ] || cryptsetup luksResume "${cryptname}" || emergency_console
+[ -z "${cryptname}" ] ||
+    while ! cryptsetup luksResume "${cryptname}"; do sleep 2; done
