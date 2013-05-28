@@ -9,7 +9,7 @@ help() {
 This hook installs a /run/initramfs/suspend script that suspends the encrypted
 root device before suspending the system.
 
-You will need the encrypt and shutdown hooks too.
+You will need the udev, encrypt, and shutdown hooks too.
 HELPEOF
 }
 

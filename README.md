@@ -25,7 +25,7 @@ Installation
 1. Install this AUR package: https://aur.archlinux.org/packages/arch-luks-suspend-git/  
    Alternatively, run `make install` as root.
 2. Edit `/etc/mkinitcpio.conf` and make sure the following hooks are enabled:
-   `encrypt`, `shutdown`, `suspend`.
+   `udev`, `encrypt`, `shutdown`, `suspend`.
 3. Rebuild the initramfs: `mkinitcpio -p linux`.
 4. Reboot.
 

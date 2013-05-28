@@ -1,5 +1,8 @@
 #!/usr/bin/ash
 
+# Start udev from initramfs
+udevd --daemon --resolve-names=never
+
 # Retrieve cryptdevice name from boot cmdline
 cryptname=$(sed -n 's/.*cryptdevice=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)
 
@@ -12,3 +15,6 @@ echo mem > /sys/power/state
 # Resume root device
 [ -z "${cryptname}" ] ||
     while ! cryptsetup luksResume "${cryptname}"; do sleep 2; done
+
+# Stop udev from initramfs, as the real daemon from rootfs will be restarted
+udevadm control --exit
