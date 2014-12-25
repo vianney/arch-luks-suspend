@@ -1,8 +1,5 @@
 #!/bin/bash
 
-set -e -u
-trap 'echo "Press ENTER to continue."; read dummy' ERR
-
 ################################################################################
 ## Parameters and helper functions
 
@@ -12,6 +9,12 @@ BIND_PATHS="/sys /proc /dev /run"
 REMOUNT=0
 # Retrieve cryptdevice name from boot cmdline
 CRYPTNAME="$(sed -n 's/.*cryptdevice=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)"
+
+panic() { while :; do echo o > /proc/sysrq-trigger; done }
+
+# Shutdown on script errors
+set -e -E -u
+trap panic ERR
 
 # run_dir DIR ARGS...
 # Run all executable scripts in directory DIR with arguments ARGS
@@ -39,7 +42,7 @@ ext4_cryptdevice_mount_options() {
 ################################################################################
 ## Main script
 
-[ -e "${INITRAMFS_DIR}/suspend" ] || exec /usr/lib/systemd/systemd-sleep suspend
+[[ -x "${INITRAMFS_DIR}/suspend" ]] || panic
 
 # Prepare chroot
 trap umount_initramfs EXIT

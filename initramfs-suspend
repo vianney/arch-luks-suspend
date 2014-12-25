@@ -2,18 +2,19 @@
 
 cryptname="${1}"
 
+panic() { while :; do echo o > /proc/sysrq-trigger; done }
+
 # Start udev from initramfs
 /usr/lib/systemd/systemd-udevd --daemon --resolve-names=never
 
-# Suspend root device
-[ -z "${cryptname}" ] || cryptsetup luksSuspend "${cryptname}"
+# Suspend root device, else shutdown
+cryptsetup luksSuspend "${cryptname}" || panic
 
 # Suspend the system
 echo mem > /sys/power/state
 
-# Resume root device
-[ -z "${cryptname}" ] ||
-    while ! cryptsetup luksResume "${cryptname}"; do sleep 2; done
+# Resume root device, else shutdown
+cryptsetup luksResume "${cryptname}" || panic
 
 # Stop udev from initramfs, as the real daemon from rootfs will be restarted
 udevadm control --exit
