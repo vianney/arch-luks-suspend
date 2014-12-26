@@ -1,20 +1,24 @@
 #!/usr/bin/ash
 
-cryptname="${1}"
+CRYPTMOUNTS_PATH="$1"
 
 panic() { while :; do echo o > /proc/sysrq-trigger; done }
 
 # Start udev from initramfs
 /usr/lib/systemd/systemd-udevd --daemon --resolve-names=never
 
-# Suspend root device, else shutdown
-cryptsetup luksSuspend "${cryptname}" || panic
+# Suspend crypt devices, else shutdown
+FAIL=0
+while IFS=$'\t' read -r mtpt name; do
+    cryptsetup luksSuspend "$name" || FAIL=1
+done < "$CRYPTMOUNTS_PATH"
+if test "$FAIL" -eq 1; then panic; fi
 
 # Suspend the system
 echo mem > /sys/power/state
 
 # Resume root device, else shutdown
-cryptsetup luksResume "${cryptname}" || panic
+cryptsetup luksResume "$(awk -F"\t" '/\/\t/{ print $2 }' "$CRYPTMOUNTS_PATH")" || panic
 
 # Stop udev from initramfs, as the real daemon from rootfs will be restarted
 udevadm control --exit

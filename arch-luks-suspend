@@ -6,9 +6,6 @@
 INITRAMFS_DIR=/run/initramfs
 SYSTEM_SLEEP_PATH=/usr/lib/systemd/system-sleep
 BIND_PATHS=(/sys /proc /dev /run)
-REMOUNT=0
-# Retrieve cryptdevice name from boot cmdline
-CRYPTNAME="$(sed -n 's/.*cryptdevice=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)"
 
 panic() { while :; do echo o > /proc/sysrq-trigger; done }
 
@@ -38,11 +35,83 @@ umount_initramfs() {
     done
 }
 
-ext4_cryptdevice_mount_options() {
-    local mt="$(grep "^/dev/mapper/${1} " /proc/mounts | cut -d ' ' -f 3,4)"
-    if [[ "${mt:0:5}" == "ext4 " ]]; then
-        echo "${mt:5}"
+is_suspended() {
+    [[ "$(cat "$1/suspended")" -eq 1 ]]
+}
+
+needs_remount() {
+    local fs="$1" mtopts="$2"
+
+    if [[ "$fs" != ext4 ]]; then
+        echo 0
+    elif ! [[ "$mtopts" == *nobarrier* || "$mtopts" == *barrier=0* ]]; then
+        echo 1
+    else
+        echo 0
     fi
+}
+
+# Active crypt devices, each as a single word with 7 fields separated by 0x1C:
+# [/sys-dm-dir, dm-name, mountpoint, fstype, mount-options, keyfile, remount?]
+cryptdevices() {
+    local dm name mtpt fs mtopts __
+    local -A mounts keyfiles
+
+    while read -r key val; do
+        mounts["$key"]="$val"
+    done < /proc/mounts
+
+    # HACK: Extract name and pass fields from crypttab
+    while read -r key __ val __; do
+        keyfiles["$key"]="$val"
+    done < <(grep -v '^[ \t]*#\|^[ \t]*$' /etc/crypttab)
+
+    for dm in /sys/block/*/dm; do
+        if grep ^CRYPT "$dm/uuid" >/dev/null && ! is_suspended "$dm"; then
+            name="$(cat "$dm/name")"
+            read -r mtpt fs mtopts __ <<< "${mounts["/dev/mapper/$name"]:-}"
+            printf "%s\x1C%s\x1C%s\x1C%s\x1C%s\x1C%s\x1C%s\n" \
+                   "$dm" "$name" "$mtpt" "$fs" "$mtopts" "${keyfiles["$name"]:-}" \
+                   "$(needs_remount "$fs" "$mtopts")"
+        fi
+    done
+}
+
+# Journalled ext4 filesystems in kernel versions 3.11+ will block suspend if
+# mounted with `barrier=1`, which is the default. We can remount affected
+# devices with `barrier=0` to work around this.
+remount_blocking_devices() {
+    local remount_opts="$1" devices=("${@:2}")
+    local dev dm name mtpt fs mtopts keyfile remount
+    for dev in "${devices[@]}"; do
+        IFS=$'\x1C' read -r dm name mtpt fs mtopts keyfile remount <<< "$dev"
+        if ! is_suspended "$dm" && ((remount)); then
+            mount -o remount,"$mtopts","$remount_opts" "/dev/mapper/$name"
+        fi
+    done
+}
+
+# Write a simple tab-delimited table of [mountpoint, dm-name]
+write_cryptdevice_mounts() {
+    local file="$1" devices=("${@:2}")
+    > "$file"
+    local dev dm name mtpt fs mtopts keyfile remount
+    for dev in "${devices[@]}"; do
+        IFS=$'\x1C' read -r dm name mtpt fs mtopts keyfile remount <<< "$dev"
+        printf "%s\t%s\n" "$mtpt" "$name" >> "$file"
+    done
+}
+
+resume_devices_with_keyfiles() {
+    local devices=("$@")
+    local dev dm name mtpt fs mtopts keyfile remount
+    for dev in "${devices[@]}"; do
+        IFS=$'\x1C' read -r dm name mtpt fs mtopts keyfile remount <<< "$dev"
+        if is_suspended "$dm" && [[ -r "$keyfile" ]]; then
+            echo "Resuming $name"
+            cryptsetup --key-file "$keyfile" luksResume "$name"
+        fi
+    done
 }
 
 # Stop udev service and prevent it to be autostarted.
@@ -66,6 +135,9 @@ journald_service() {
 
 [[ -x "${INITRAMFS_DIR}/suspend" ]] || panic
 
+# NB. We will pass this variable unquoted to do word splitting
+CRYPTDEVICES="$(cryptdevices)"
+
 # Prepare chroot
 trap umount_initramfs EXIT
 mount_initramfs
@@ -77,26 +149,29 @@ run_dir "${SYSTEM_SLEEP_PATH}" pre suspend
 udev_service stop
 journald_service stop
 
-# Journalled ext4 filesystems in kernel versions 3.11+ will block suspend
-# if mounted with `barrier=1`, which is the default. Temporarily remount with
-# `barrier=0` if this is true of the crypt fs.
-MOUNT_OPTS="$(ext4_cryptdevice_mount_options "$CRYPTNAME")"
-if [[ "$MOUNT_OPTS" ]] && ! [[ "$MOUNT_OPTS" == *nobarrier* || "$MOUNT_OPTS" == *barrier=0* ]]; then
-    REMOUNT=1
-    mount -o remount,"$MOUNT_OPTS",barrier=0 /
-fi
-
 # Synchronize filesystems before luksSuspend
 sync
 
-# Hand over execution to script inside initramfs
-cd "${INITRAMFS_DIR}"
-chroot . /suspend "$CRYPTNAME"
+# Disable write barriers to avoid IO hangs
+remount_blocking_devices barrier=0 $CRYPTDEVICES
 
-# Restore original mount options if necessary
-if ((REMOUNT)); then
-    mount -o remount,"$MOUNT_OPTS",barrier=1 /
-fi
+# Hand over execution to script inside initramfs
+{
+    pushd .
+    cd "${INITRAMFS_DIR}"
+    umask 0077
+    write_cryptdevice_mounts run/cryptmounts $CRYPTDEVICES
+    chroot . /suspend run/cryptmounts
+    rm -f run/cryptmounts
+    popd
+} > /dev/null
+
+# The user has unlocked the root device, so now resume all other devices with
+# known keyfiles
+resume_devices_with_keyfiles $CRYPTDEVICES
+
+# Restore original mount options where necessary
+remount_blocking_devices barrier=1 $CRYPTDEVICES
 
 # Restart stopped services
 journald_service start
