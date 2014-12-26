@@ -54,6 +54,13 @@ udev_service() {
     systemctl "$1" systemd-udevd.service
 }
 
+# Prevent journald from attempting to write to the suspended device
+journald_service() {
+    systemctl "$1" systemd-journald-dev-log.socket
+    systemctl "$1" systemd-journald.socket
+    systemctl "$1" systemd-journald.service
+}
+
 ################################################################################
 ## Main script
 
@@ -68,6 +75,7 @@ run_dir "${SYSTEM_SLEEP_PATH}" pre suspend
 
 # Stop services that may block suspend
 udev_service stop
+journald_service stop
 
 # Journalled ext4 filesystems in kernel versions 3.11+ will block suspend
 # if mounted with `barrier=1`, which is the default. Temporarily remount with
@@ -91,6 +99,7 @@ if ((REMOUNT)); then
 fi
 
 # Restart stopped services
+journald_service start
 udev_service start
 
 # Run post-suspend scripts
