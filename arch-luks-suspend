@@ -12,6 +12,7 @@ BIND_PATHS="/sys /proc /dev /run"
 REMOUNT=0
 # Retrieve cryptdevice name from boot cmdline
 CRYPTNAME="$(sed -n 's/.*cryptdevice=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)"
+ROOTDEV=$(sed -n 's/.*root=\([^ ]*\).*/\1/p' /proc/cmdline)
 
 # run_dir DIR ARGS...
 # Run all executable scripts in directory DIR with arguments ARGS
@@ -30,7 +31,7 @@ umount_initramfs() {
 }
 
 ext4_cryptdevice_mount_options() {
-    local mt="$(grep "^/dev/mapper/${1} " /proc/mounts | cut -d ' ' -f 3,4)"
+    local mt="$(grep "^${1} " /proc/mounts | cut -d ' ' -f 3,4)"
     if [[ "${mt:0:5}" == "ext4 " ]]; then
         echo "${mt:5}"
     fi
@@ -60,7 +61,7 @@ systemctl stop systemd-udevd.service
 # Journalled ext4 filesystems in kernel versions 3.11+ will block suspend
 # if mounted with `barrier=1`, which is the default. Temporarily remount with
 # `barrier=0` if this is true of the crypt fs.
-MOUNT_OPTS="$(ext4_cryptdevice_mount_options "$CRYPTNAME")"
+MOUNT_OPTS="$(ext4_cryptdevice_mount_options "$ROOTDEV")"
 if [[ "$MOUNT_OPTS" ]] && ! [[ "$MOUNT_OPTS" == *nobarrier* || "$MOUNT_OPTS" == *barrier=0* ]]; then
     REMOUNT=1
     mount -o remount,"$MOUNT_OPTS",barrier=0 /
