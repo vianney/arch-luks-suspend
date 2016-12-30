@@ -57,6 +57,10 @@ systemctl stop systemd-udevd-control.socket
 systemctl stop systemd-udevd-kernel.socket
 systemctl stop systemd-udevd.service
 
+systemctl stop systemd-journald.socket
+systemctl stop systemd-journald-dev-log.socket
+systemctl stop systemd-journald.service
+
 # Journalled ext4 filesystems in kernel versions 3.11+ will block suspend
 # if mounted with `barrier=1`, which is the default. Temporarily remount with
 # `barrier=0` if this is true of the crypt fs.
@@ -77,6 +81,10 @@ chroot . /suspend "$CRYPTNAME"
 if ((REMOUNT)); then
     mount -o remount,"$MOUNT_OPTS",barrier=1 /
 fi
+
+systemctl start systemd-journald.service
+systemctl start systemd-journald-dev-log.socket
+systemctl start systemd-journald.socket
 
 # Restart udev
 systemctl start systemd-udevd-control.socket
