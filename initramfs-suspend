@@ -15,12 +15,13 @@ cryptkeymountpoint="/rootkey"
 # Suspend the system
 echo mem > /sys/power/state
 
-# Wait for keydev
-while ! [ -e "${cryptkeydev}" ]; do sleep 0.5; done
 
-# Mount keyfile
 if [ -n "${cryptkeydev}" ] && [ -n "${cryptkeyfs}" ] && [ -n "${cryptkeyfile}" ]
 then
+    # Wait for keydev
+    while ! [ -e "${cryptkeydev}" ]; do sleep 0.5; done
+
+    # Mount keydev
     mkdir "${cryptkeymountpoint}"
     mount -t "${cryptkeyfs}" "${cryptkeydev}" "${cryptkeymountpoint}"
     lukskeyfilearg="--key-file ${cryptkeymountpoint}${cryptkeyfile}"
