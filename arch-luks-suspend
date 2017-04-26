@@ -12,6 +12,10 @@ BIND_PATHS="/sys /proc /dev /run"
 REMOUNT=0
 # Retrieve cryptdevice name from boot cmdline
 CRYPTNAME="$(sed -n 's/.*cryptdevice=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)"
+# Retrieve cryptkey from boot cmdline
+CRYPTKEYDEV="$(sed -n 's/.*cryptkey=\([^: ]*\).*$/\1/p' /proc/cmdline)"
+CRYPTKEYFS="$(sed -n 's/.*cryptkey=[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)"
+CRYPTKEYFILE="$(sed -n 's/.*cryptkey=[^: ]*:[^: ]*:\([^: ]*\).*$/\1/p' /proc/cmdline)"
 
 # run_dir DIR ARGS...
 # Run all executable scripts in directory DIR with arguments ARGS
@@ -71,7 +75,7 @@ sync
 
 # Hand over execution to script inside initramfs
 cd "${INITRAMFS_DIR}"
-chroot . /suspend "$CRYPTNAME"
+chroot . /suspend "$CRYPTNAME" "$CRYPTKEYDEV" "$CRYPTKEYFS" "$CRYPTKEYFILE"
 
 # Restore original mount options if necessary
 if ((REMOUNT)); then
