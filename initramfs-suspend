@@ -1,6 +1,10 @@
 #!/usr/bin/ash
 
 cryptname="${1}"
+cryptkeydev="${2}"
+cryptkeyfs="${3}"
+cryptkeyfile="${4}"
+cryptkeymountpoint="/rootkey"
 
 # Start udev from initramfs
 /usr/lib/systemd/systemd-udevd --daemon --resolve-names=never
@@ -11,9 +15,24 @@ cryptname="${1}"
 # Suspend the system
 echo mem > /sys/power/state
 
+# Mount keydev
+if [ -n "${cryptkeydev}" ] && [ -n "${cryptkeyfs}" ] && [ -n "${cryptkeyfile}" ]
+then
+    mkdir "${cryptkeymountpoint}"
+    while ! mount -t "${cryptkeyfs}" "${cryptkeydev}" "${cryptkeymountpoint}"; do sleep 2; done
+    lukskeyfilearg="--key-file ${cryptkeymountpoint}${cryptkeyfile}"
+fi
+
 # Resume root device
 [ -z "${cryptname}" ] ||
-    while ! cryptsetup luksResume "${cryptname}"; do sleep 2; done
+    while ! cryptsetup luksResume ${lukskeyfilearg} "${cryptname}"; do sleep 2; done
+
+# Clean up keyfile
+if [ -d "${cryptkeymountpoint}" ]
+then
+    umount "${cryptkeymountpoint}"
+    rmdir "${cryptkeymountpoint}"
+fi
 
 # Stop udev from initramfs, as the real daemon from rootfs will be restarted
 udevadm control --exit
